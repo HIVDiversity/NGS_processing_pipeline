@@ -16,7 +16,7 @@ def get_primer_lens_score(primer):
 
     count_Ns = 0
     non_Ns = 0
-    bases = ['A', 'C', 'G', 'T']
+    bases = ['A', 'C', 'G', 'T', 'R', 'Y', 'M', 'K', 'S', 'W', 'H', 'B', 'V', 'D']
 
     for base in str(primer):
         if base == 'N':
@@ -24,13 +24,13 @@ def get_primer_lens_score(primer):
         elif base in bases:
             non_Ns += 1
         else:
-            non_Ns += 1
+            sys.exit("Non standard character in primer sequence\nMust be one of: {} or 'N'".format(bases))
 
     if count_Ns == 0:
         sys.exit("could not find primer ID in primer")
     total = len(primer)
 
-    if non_Ns < 0:
+    if non_Ns < 1:
         print("Error in primer {}".format(primer))
     primer_lens = '1,' + str(count_Ns - 1) + "," + str(non_Ns)
     primer_score = str(count_Ns + int((non_Ns * 0.8)))
@@ -38,7 +38,7 @@ def get_primer_lens_score(primer):
 
 
 def run_motifbinner(logfile, fwd_read, rev_read, outpath, fwd_primer, fwd_primer_lens, fwd_primer_score,
-                    cDNA_primer, cDNA_primer_lens, cDNA_primer_score, name_prefix, counter, nonoverlap):
+                    cDNA_primer, cDNA_primer_lens, cDNA_primer_score, name_prefix, counter, cores, nonoverlap):
     if not nonoverlap:
         overlap_option = "overlapping"
     else:
@@ -58,10 +58,10 @@ def run_motifbinner(logfile, fwd_read, rev_read, outpath, fwd_primer, fwd_primer
           '--rev_pid_in_which_fragment={9} ' \
           '--output_dir={10} ' \
           '--base_for_names={11} ' \
-          '--ncpu=3 ' \
+          '--ncpu={12} ' \
           '--min_read_length=290 '\
           '--merged_read_length=240 '\
-          '--{12}'.format(fwd_read,
+          '--{13}'.format(fwd_read,
                           fwd_primer,
                           fwd_primer_lens,
                           fwd_primer_score,
@@ -73,6 +73,7 @@ def run_motifbinner(logfile, fwd_read, rev_read, outpath, fwd_primer, fwd_primer
                           rev_pid_fragment,
                           outpath,
                           name_prefix,
+                          cores,
                           overlap_option)
 
     # only write to log file if this is the first iteration
@@ -83,7 +84,7 @@ def run_motifbinner(logfile, fwd_read, rev_read, outpath, fwd_primer, fwd_primer
     subprocess.call(cmd, shell=True)
 
 
-def main(read1, read2, outpath, fwd_primer, cDNA_primer, name_prefix, counter, non_overlap, logfile):
+def main(read1, read2, outpath, fwd_primer, cDNA_primer, name_prefix, counter, logfile, cores, non_overlap ):
 
     print("calling MotifBinner")
     fwd_primer = fwd_primer.upper()
@@ -95,7 +96,7 @@ def main(read1, read2, outpath, fwd_primer, cDNA_primer, name_prefix, counter, n
 
     # run motifbinner call function
     run_motifbinner(logfile, read1, read2, outpath, fwd_primer, fwd_primer_lens, fwd_primer_score,
-                cDNA_primer, cDNA_primer_lens, cDNA_primer_score, name_prefix, non_overlap, counter)
+                    cDNA_primer, cDNA_primer_lens, cDNA_primer_score, name_prefix, counter, cores, non_overlap)
 
 
 if __name__ == "__main__":
@@ -118,8 +119,10 @@ if __name__ == "__main__":
                         help='Counter to keep track of logging commands to the log file', required=True)
     parser.add_argument('-l', '--logfile', default=argparse.SUPPRESS, type=str,
                         help='The path and name of the log file', required=True)
+    parser.add_argument('-ncpu', '--cores', default=3, type=int,
+                        help='the number of CPU cores to use', required=False)
     parser.add_argument('-v', '--non_overlap', default=False, action='store_true',
-                        help="Use if reads don't)", required=False)
+                        help="Use if reads don't overlap)", required=False)
 
     args = parser.parse_args()
     read1 = args.read1
@@ -130,6 +133,7 @@ if __name__ == "__main__":
     name_prefix = args.name_prefix
     counter = args.counter
     non_overlap = args.non_overlap
+    cores = args.cores
     logfile = args.logfile
 
-    main(read1, read2, outpath, fwd_primer, cDNA_primer, name_prefix, counter, non_overlap, logfile)
+    main(read1, read2, outpath, fwd_primer, cDNA_primer, name_prefix, counter, logfile, cores, non_overlap)
