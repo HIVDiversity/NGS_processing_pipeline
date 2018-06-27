@@ -13,7 +13,14 @@ import json
 import logging
 
 
-__author__ = 'Jon Ambler'
+__author__ = "Colin, Jon, Dave"
+__copyright__ = "Something"
+__credits__ = ["Colin", "Jon", "Dave"]
+__license__ = "TBD"
+__version__ = "0.1"
+__maintainer__ = "Colin?"
+__email__ = ""
+__status__ = "Testing"
 
 
 def is_divisable(dividend, divisor):
@@ -29,16 +36,19 @@ def is_divisable(dividend, divisor):
         return False
 
 
-def make_seq_wild(inputSequence):
+def make_seq_wild(input_sequence):
     """
     Replaces non-standard nucleotides with a '?' character for use in the regex function.
-    :param inputSequence: A nucleotide sequence as a string.
+    :param input_sequence: A nucleotide sequence as a string.
     :return: The nucleotide sequence with replacements as a string.
     """
     nucleotides = ['A', 'C', 'G', 'T']
     wild_seq = ''
 
-    for nuc in inputSequence:
+    if len(input_sequence) <= 0:
+        logging.warning("0 length sequence submitted to the make_seq_wild function.")
+
+    for nuc in input_sequence:
         if nuc not in nucleotides:
             wild_seq += '?'
         else:
@@ -59,18 +69,23 @@ def break_into_all_kmers(aString):
 def make_kmer_key_list(list_of_strings, min_len=0, max_len=10000000, max_kmers=-1):
     """
     A kmer key list is a list of substrings of a given string that may be used to uniquely identify the string.
-    Each substring is represented only once in the list of keys.
+    Each substring is represented only once in the list of keys. Here, each string represents a primer, and the primer
+    is mapped back to the primer dictionary based on its sequence.
+    This function is called by add_kmer_keys.
+    Why pass a list of all the primers? This is so the k-mers are unique to each primer,
     :param list_of_strings:
-    :param min_len:
-    :param max_len:
-    :param max_kmers:
-    :return:
+    :param min_len: The shortest length of sequence allowed for the k-mers
+    :param max_len: The longest length of sequence allowed for the k-mers
+    :param max_kmers: Limit the number of k-mers to be included. Longer k-mers are kept and shortest are discarded.
+    :return: a dictionary where the keys are the string / primer and the values are a list of unique k-mers for that
+    primer.
     """
     string_dict = {}
     unique_dict = {}
     for a_string in list_of_strings:
         sub_string_list = break_into_all_kmers(a_string)
         string_dict[a_string] = sub_string_list
+        # Initialise a dictionary with an empty list
         unique_dict[a_string] = []
 
     for a_string in list_of_strings:
@@ -92,9 +107,12 @@ def make_kmer_key_list(list_of_strings, min_len=0, max_len=10000000, max_kmers=-
                 largest_kmer = max(unique_dict[a_string], key=len)
                 shorter_unique_dict[a_string].append(largest_kmer)
                 unique_dict[a_string].remove(largest_kmer)
-                # print len(unique_dict[a_string])
-
                 count += 1
+
+            if count == 0:
+                # Send error if no k-mers are found for the primer
+                logging.error("No unique k-mers found for primer " + a_string)
+
         unique_dict = shorter_unique_dict
 
     return unique_dict
@@ -141,6 +159,9 @@ def make_primer_dict(primer_file):
                 'blast_matches_found': 0,
             }
 
+    number_of_regions = len(res_dict.keys())
+    logging.info("Primer file parsed: " + str(number_of_regions) + " records found")
+
     return res_dict
 
 
@@ -157,12 +178,6 @@ def export_line_to_fastq(fileTag, headerLine, seqLine, plusLine, scoreLine, infa
     out_file_name = infast_name.replace('multiplex', fileTag)
     out_file_path = out_dir + patient_list[0] + '/' + fileTag + '/0new_data/'
 
-    # file_obj = open(out_file_path + out_file_name, "a+")
-    # file_obj.write(headerLine)
-    # file_obj.write(seqLine)
-    # file_obj.write(plusLine)
-    # file_obj.write(scoreLine)
-    # file_obj.close()
     with open(out_file_path + out_file_name, "a+") as handle:
         handle.write(headerLine)
         handle.write(seqLine)
@@ -175,11 +190,12 @@ def export_line_to_fastq(fileTag, headerLine, seqLine, plusLine, scoreLine, infa
 def wildcard_seq_match(primer, sequence):
     """
     Check if the primer sequence is found in the sequence, allowing for wildcards.
-    :param primer:
-    :param sequence:
-    :return:
+    :param primer: The primer to test for a match
+    :param sequence: The sequence that will be compared to the primer.
+    :return: True or false depending on if there is a match.
     """
-
+    # Commenting this out will have broken regex matching.
+    # todo Fix this as per git issue request
     # iupac_list = ['R', 'Y', 'S', 'W', 'K']
     # for char in iupac_list:
     #     primer = primer.replace(char, '?')
@@ -198,8 +214,8 @@ def wildcard_seq_match(primer, sequence):
 def add_kmer_keys(primerDict):
     """
     Add the primer keys to an existing primer dictionary.
-    :param primerDict:
-    :return:
+    :param primerDict: A primer dict created by the make_primer_dict function.
+    :return: a primer dictionary object with the unique k-mer keys added.
     """
 
     fwd_primer_list = []
@@ -244,7 +260,14 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
     line_number_sequence = 3
     line_number_header = 4
 
+    # Get the shortest primer length
+    shortest_primer_length = 1000000
+    for aPrimer in list(primer_dict.keys()):
+        if len(primer_dict[aPrimer][orientation]) < shortest_primer_length:
+            shortest_primer_length = len(primer_dict[aPrimer][orientation])
+
     if make_sure:
+        # todo this should be moved to a function of its own
         # Make a fasta file with all primers
         temp_fasta = open(out_dir + 'primerList.fasta', 'w')
 
@@ -258,11 +281,6 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
         # Make a blast database
         create_temp_blast_db(out_dir + 'primerList.fasta', out_dir + 'primers')
 
-        # Get the shortest primer length
-        shortest_primer_length = 1000000
-        for aPrimer in list(primer_dict.keys()):
-            if len(primer_dict[aPrimer][orientation]) < shortest_primer_length:
-                shortest_primer_length = len(primer_dict[aPrimer][orientation])
 
     for seq_line in open(fastq_file, 'r'):
 
@@ -552,18 +570,18 @@ if __name__ == '__main__':
 
     parser.add_argument('-c', '--config_file', type=str, help='Configuration file for the run in JSON format')
     parser.add_argument('-o', '--output_dir', type=str, help='Location to write the output fastq files')
-    parser.add_argument('-d', '--demultiplex', default=True, action='store_false',
+    parser.add_argument('-d', '--no_demultiplex', default=True, action='store_false',
                         help='Do not run the demultiplexing step')
-    parser.add_argument('-m', '--main_pipeline', default=True, action='store_false',
+    parser.add_argument('-m', '--no_main_pipeline', default=True, action='store_false',
                         help='Do not run the main pipeline')
-    parser.add_argument('-hap', '--haplotype', default=True, action='store_false',
+    parser.add_argument('-hap', '--no_haplotype', default=True, action='store_false',
                         help='Do not run the haplotyping pipeline')
     args = parser.parse_args()
 
     config_file = args.config_file
     output_dir = args.output_dir
-    main_pipeline = args.main_pipeline
-    haplotype = args.haplotype
-    demultiplex = args.demultiplex
+    main_pipeline = args.no_main_pipeline
+    haplotype = args.no_haplotype
+    demultiplex = args.no_demultiplex
 
     main(config_file, output_dir, demultiplex, main_pipeline, haplotype)
