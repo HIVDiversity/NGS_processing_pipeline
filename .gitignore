@@ -119,3 +119,9 @@ to remove/
 .idea/dictionaries/colin.xml
 .idea/inspectionProfiles/Project_Default.xml
 .idea/NGS_processing_pipeline.iml
+
+outTest/
+demultiplex.py.bak
+.DS_Store
+config.json
+config.ini

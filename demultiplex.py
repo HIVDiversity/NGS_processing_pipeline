@@ -10,6 +10,7 @@ import argparse
 import os
 import ntpath
 import json
+import logging
 
 
 __author__ = 'Jon Ambler'
@@ -228,7 +229,7 @@ def add_kmer_keys(primerDict):
     return primerDict
 
 
-def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir, patient_list, make_sure=True):
+def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir, patient_list, make_sure=False):
     """
     Take an input fastq file and split it into individual fastq files, with the split based on the presence of
     a primer sequence specified in a dictionary.
@@ -325,11 +326,25 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
     splitReport.write('Region,Exact matches,Regex matches,Kmer matches,Blast matches\n')
     for a_gene_region in primer_dict.keys():
         out_line = a_gene_region + ',' + \
-                   str(primer_dict[a_gene_region]['exact_matches_found']) + ',' + \
-                   str(primer_dict[a_gene_region]['regex_matches_found']) + ',' + \
-                   str(primer_dict[a_gene_region]['kmer_matches_found']) + ',' + \
-                   str(primer_dict[a_gene_region]['blast_matches_found']) + '\n'
+                str(primer_dict[a_gene_region]['exact_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['regex_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['kmer_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['blast_matches_found']) + '\n'
         splitReport.write(out_line)
+
+        logging.info('Exact matches found: ' + str(primer_dict[a_gene_region]['exact_matches_found']))
+        logging.info('Regex matches found: ' + str(primer_dict[a_gene_region]['regex_matches_found']))
+        logging.info('K-mer matches found: ' + str(primer_dict[a_gene_region]['kmer_matches_found']))
+        logging.info('Blast matches found: ' + str(primer_dict[a_gene_region]['blast_matches_found']))
+
+        # Check to see if no matches were found
+        if primer_dict[a_gene_region]['exact_matches_found'] == 0:
+            logging.warning('No exact matches found')
+        if primer_dict[a_gene_region]['regex_matches_found'] == 0:
+            logging.warning('No regex matches found')
+        if primer_dict[a_gene_region]['kmer_matches_found'] == 0:
+            logging.warning('No k-mer matches found')
+
 
     splitReport.close()
 
@@ -401,17 +416,29 @@ def primer_blast_search(db_identifier, sequence, out_dir):
 
 
 def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
+    """
+    The main function for the pipeline
+    :param config_file:
+    :param output_dir:
+    :param demultiplex:
+    :param main_pipeline:
+    :param haplotype:
+    :return:
+    """
+
+    logging.basicConfig(filename='Pipeline.log', level=logging.DEBUG)
+
     print("Parsing the config file:")
 
     with open(config_file) as json_data_file:
         data = json.load(json_data_file)
-    print(data)
 
-    print(data['input_data']['fwd_fastq_file'])
-    print(data['input_data']['rev_fastq_file'])
-    print(data['input_data']['primer_csv'])
-    print(data['input_data']['out_folder'])
-    print(data['input_data']['patient_list'])
+    logging.debug(data)
+    logging.info(data['input_data']['fwd_fastq_file'])
+    logging.info(data['input_data']['rev_fastq_file'])
+    logging.info(data['input_data']['primer_csv'])
+    logging.info(data['input_data']['out_folder'])
+    logging.info(data['input_data']['patient_list'])
 
     # Make sure we are working in the right dir
     out_dir = data['input_data']['out_folder']
@@ -420,16 +447,16 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
 
     patient_list = data['input_data']['patient_list']
     if len(patient_list) > 1:
-        print("The patient list provided is either too long or not a list.")
+        logging.warning('The patient list provided is either too long or not a list.')
         quit()
 
     # The actual running part.
     test_primer_dict = make_primer_dict(data['input_data']['primer_csv'])
-    print(test_primer_dict)
+    logging.debug(test_primer_dict)
 
     test_primer_dict = add_kmer_keys(test_primer_dict)
 
-    print("Primer data parsed. " + str(len(test_primer_dict.keys())) + " primer entries found.")
+    logging.info("Primer data parsed. " + str(len(test_primer_dict.keys())) + " primer entries found.")
 
     os.chdir(output_dir)
 
@@ -443,6 +470,7 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
 
         import step_1_create_folders
 
+        # Create folders for each of the gene regions
         for gene_region in test_primer_dict.keys():
             step_1_create_folders.main('./', gene_region, patient_list)
 
@@ -513,17 +541,6 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
                 data['haplotype_settings']['field'],
                 data['haplotype_settings']['script_folder']
             )
-
-    # Paths for use in testing
-    '''
-    primer_file = '/Volumes/External/CIDRI_Data/HIV_group_Carolyn/Multiplex_regions_primers.csv'
-    fastq_file = '/Volumes/External/CIDRI_Data/HIV_group_Carolyn/test_dataset/CAP206-2000-008wpi-multiplex_S17_L001_R1_001.fastq'
-    out_dir = '/Volumes/External/CIDRI_Data/HIV_group_Carolyn/test_results/'	
-    # For testing
-    list_of_seqs = ['GGCTGTGGTATATAAAAATATTCATMATGA', 'GCCATAAGAAAAGCCATATTAGGAC', 'ATAAGACAGGGCTTTGAAGCAGC',
-                    'AGCAGAGAGCTTCAGGTTCG', 'ACACATAGCTTTAATTGTRGAGGAGAATTT']
-
-    '''
 
 
 if __name__ == '__main__':
