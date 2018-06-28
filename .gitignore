@@ -125,3 +125,5 @@ demultiplex.py.bak
 .DS_Store
 config.json
 config.ini
+run_script.sh
+master_primer_file.csv
