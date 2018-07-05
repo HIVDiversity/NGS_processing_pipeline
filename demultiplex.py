@@ -12,6 +12,9 @@ import ntpath
 import json
 import logging
 
+# Non-standard
+import regex
+
 
 __author__ = "Colin, Jon, Dave"
 __copyright__ = "Something"
@@ -187,25 +190,20 @@ def export_line_to_fastq(fileTag, headerLine, seqLine, plusLine, scoreLine, infa
     return True
 
 
-def wildcard_seq_match(primer, sequence):
+def wildcard_seq_match(primer, sequence, error_rate):
     """
     Check if the primer sequence is found in the sequence, allowing for wildcards.
     :param primer: The primer to test for a match
     :param sequence: The sequence that will be compared to the primer.
+    :param error_rate: The number of changes allowed between the sequences
     :return: True or false depending on if there is a match.
     """
-    # Commenting this out will have broken regex matching.
-    # todo Fix this as per git issue request
-    # iupac_list = ['R', 'Y', 'S', 'W', 'K']
-    # for char in iupac_list:
-    #     primer = primer.replace(char, '?')
 
-    # Make sure variable is empty
-    lst = [sequence]
-    # filtered = []
+    primer_pattern = r'(' + primer + '){e<' + error_rate + '}'
 
-    filtered = fnmatch.filter(lst, primer)
-    if len(filtered) == 1:
+    match = regex.search(primer_pattern, sequence, regex.BESTMATCH)
+
+    if match is not None:
         return True
     else:
         return False
@@ -245,13 +243,14 @@ def add_kmer_keys(primerDict):
     return primerDict
 
 
-def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir, patient_list, make_sure=False):
+def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir, patient_list, regex_error_rate, make_sure=False):
     """
     Take an input fastq file and split it into individual fastq files, with the split based on the presence of
     a primer sequence specified in a dictionary.
     :param fastq_file:
     :param primer_dict:
     :param orientation: Whether these are forward (R1) or reverse (R2) reads. Options are 'fwd' or 'rev'.
+    :param regex_error_rate: error rate for regex matching.
     :param make_sure: When set to True, a blast search is included in the process.
     :return:
     """
@@ -304,7 +303,7 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
                     primer_dict[geneRegion]['exact_matches_found'] += 1
 
                 # Level 2: If no exact match, then look for regex matches
-                elif wildcard_seq_match(primer_dict[geneRegion][orientation + '_wild'], seq_primer_region):
+                elif wildcard_seq_match(primer_dict[geneRegion][orientation + '_wild'], seq_primer_region, regex_error_rate):
                     detected_primer = geneRegion
                     primer_dict[geneRegion]['regex_matches_found'] += 1
 
@@ -433,7 +432,7 @@ def primer_blast_search(db_identifier, sequence, out_dir):
         return "None"
 
 
-def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
+def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_error_rate):
     """
     The main function for the pipeline
     :param config_file:
@@ -441,6 +440,7 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
     :param demultiplex:
     :param main_pipeline:
     :param haplotype:
+    :param regex_error_rate:
     :return:
     """
 
@@ -499,11 +499,11 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
         print("Demultiplexing fastq")
         infast_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
         split_by_primers(data['input_data']['fwd_fastq_file'], test_primer_dict, 'fwd',
-                         infast_name, output_dir, patient_list)
+                         infast_name, output_dir, patient_list, regex_error_rate)
 
         infast_name = ntpath.basename(data['input_data']['rev_fastq_file'])
         split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
-                         infast_name, output_dir, patient_list)
+                         infast_name, output_dir, patient_list, regex_error_rate)
 
     if run_main_pipe:
         print("Running main pipeline")
@@ -576,6 +576,7 @@ if __name__ == '__main__':
                         help='Do not run the main pipeline')
     parser.add_argument('-hap', '--no_haplotype', default=True, action='store_false',
                         help='Do not run the haplotyping pipeline')
+    parser.add_argument('-e', '--regex_error', type=int, help='Set the regex error rate', default=2)
     args = parser.parse_args()
 
     config_file = args.config_file
@@ -584,4 +585,4 @@ if __name__ == '__main__':
     haplotype = args.no_haplotype
     demultiplex = args.no_demultiplex
 
-    main(config_file, output_dir, demultiplex, main_pipeline, haplotype)
+    main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_error_rate)
