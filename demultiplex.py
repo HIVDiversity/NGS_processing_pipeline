@@ -11,7 +11,6 @@ import os
 import ntpath
 import json
 import logging
-from itertools import izip
 
 # Non-standard
 import regex
@@ -200,7 +199,7 @@ def wildcard_seq_match(primer, sequence, error_rate):
     :return: True or false depending on if there is a match.
     """
 
-    primer_pattern = r'(' + primer + '){e<' + error_rate + '}'
+    primer_pattern = r'(' + primer + '){e<' + str(error_rate) + '}'
 
     match = regex.search(primer_pattern, sequence, regex.BESTMATCH)
 
@@ -364,6 +363,7 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
 
     splitReport.close()
 
+
 def split_by_primers_matchpair(fastq_R1_file, fastq_R2_file, primer_dict, orientation, infast_R1_name, infast_R2_name, out_dir, patient_list, regex_error_rate, make_sure=False):
     """
     Take an input fastq file and split it into individual fastq files, with the split based on the presence of
@@ -403,7 +403,7 @@ def split_by_primers_matchpair(fastq_R1_file, fastq_R2_file, primer_dict, orient
         # Make a blast database
         create_temp_blast_db(out_dir + 'primerList.fasta', out_dir + 'primers')
 
-    for seq_line, R2_seq_line in izip(open(fastq_R1_file, 'r'), open(fastq_R2_file, 'r')):
+    for seq_line, R2_seq_line in zip(open(fastq_R1_file, 'r'), open(fastq_R2_file, 'r')):
         # Get the header
         if is_divisable(line_number_header, 4):
             current_header = seq_line
@@ -560,7 +560,7 @@ def primer_blast_search(db_identifier, sequence, out_dir):
         return "None"
 
 
-def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_error_rate):
+def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
     """
     The main function for the pipeline
     :param config_file:
@@ -568,7 +568,6 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_e
     :param demultiplex:
     :param main_pipeline:
     :param haplotype:
-    :param regex_error_rate:
     :return:
     """
 
@@ -578,6 +577,12 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_e
 
     with open(config_file) as json_data_file:
         data = json.load(json_data_file)
+
+    regex_error_rate = data["demiltiplexSettings"]["error_rate"]
+    fwd_match_only = data["demiltiplexSettings"]["fwd_only"]
+    should_do_blast = False
+    if data["demiltiplexSettings"]["do_blast"] == "yes":
+        should_do_blast = True
 
     logging.debug(data)
     logging.info(data['input_data']['fwd_fastq_file'])
@@ -625,20 +630,21 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_e
 
     if demultiplex_fastq:
         print("Demultiplexing fastq")
-        if fwd_match_only:
+        if fwd_match_only == "yes":
             infast_R1_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
             infast_R2_name = ntpath.basename(data['input_data']['rev_fastq_file'])
+
             split_by_primers_matchpair(data['input_data']['fwd_fastq_file'], data['input_data']['rev_fastq_file'],
-                                       'fwd', infast_R1_name, infast_R2_name, output_dir, patient_list,
-                                       regex_error_rate)
+                                       test_primer_dict, 'fwd', infast_R1_name, infast_R2_name, output_dir, patient_list,
+                                       regex_error_rate, make_sure=should_do_blast)
         else:
             infast_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
             split_by_primers(data['input_data']['fwd_fastq_file'], test_primer_dict, 'fwd',
-                             infast_name, output_dir, patient_list, regex_error_rate)
+                             infast_name, output_dir, patient_list, regex_error_rate, make_sure=should_do_blast)
 
             infast_name = ntpath.basename(data['input_data']['rev_fastq_file'])
             split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
-                             infast_name, output_dir, patient_list, regex_error_rate)
+                             infast_name, output_dir, patient_list, regex_error_rate, make_sure=should_do_blast)
 
     if run_main_pipe:
         print("Running main pipeline")
@@ -711,9 +717,6 @@ if __name__ == '__main__':
                         help='Do not run the main pipeline')
     parser.add_argument('-hap', '--no_haplotype', default=True, action='store_false',
                         help='Do not run the haplotyping pipeline')
-    parser.add_argument('-e', '--regex_error', type=int, help='Set the regex error rate', default=2)
-    parser.add_argument('-f', '--fwd_match_only', default=False, action='store_true',
-                        help='Only match primers on R1 / fwd')
     args = parser.parse_args()
 
     config_file = args.config_file
@@ -721,6 +724,5 @@ if __name__ == '__main__':
     main_pipeline = args.no_main_pipeline
     haplotype = args.no_haplotype
     demultiplex = args.no_demultiplex
-    fwd_match_only = args.fwd_match_only
 
-    main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_error_rate)
+    main(config_file, output_dir, demultiplex, main_pipeline, haplotype)
