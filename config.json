@@ -1,0 +1,29 @@
+{
+  "input_data":{
+    "fwd_fastq_file":"path/to/R1fastq",
+    "rev_fastq_file":"path/to/R2/fastq",
+    "primer_csv":"path/to/primer_file.csv",
+    "patient_list":["human1"],
+    "out_folder":"path/to/out_dir"
+  },
+
+  "pipelineSettings":{
+    "out_prefix": "prefix",
+    "frame": 1,
+    "stops": "yes",
+    "min_read_length": 30,
+    "run_step": 1
+  },
+
+  "haplotype_settings":{
+    "infile":"",
+    "field":"",
+    "script_folder":""
+  },
+
+  "demiltiplexSettings":{
+    "do_blast":"no",
+    "error_rate":2,
+    "fwd_only":"yes"
+  }
+}

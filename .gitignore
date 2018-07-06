@@ -123,7 +123,7 @@ to remove/
 outTest/
 demultiplex.py.bak
 .DS_Store
-config.json
 config.ini
 run_script.sh
+local_config.json
 master_primer_file.csv
