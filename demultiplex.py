@@ -11,6 +11,7 @@ import os
 import ntpath
 import json
 import logging
+from itertools import izip
 
 # Non-standard
 import regex
@@ -280,9 +281,7 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
         # Make a blast database
         create_temp_blast_db(out_dir + 'primerList.fasta', out_dir + 'primers')
 
-
     for seq_line in open(fastq_file, 'r'):
-
         # Get the header
         if is_divisable(line_number_header, 4):
             current_header = seq_line
@@ -333,6 +332,135 @@ def split_by_primers(fastq_file, primer_dict, orientation, infast_name, out_dir,
         if is_divisable(line_number_quality, 4):
             export_line_to_fastq(detected_primer, current_header, current_sequence, current_plus, current_quality,
                                  infast_name, out_dir, patient_list)
+
+        line_number_quality += 1
+        line_number_plus += 1
+        line_number_sequence += 1
+        line_number_header += 1
+
+    splitReport = open(orientation + '_splitReport.csv', 'w')
+    splitReport.write('Region,Exact matches,Regex matches,Kmer matches,Blast matches\n')
+    for a_gene_region in primer_dict.keys():
+        out_line = a_gene_region + ',' + \
+                str(primer_dict[a_gene_region]['exact_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['regex_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['kmer_matches_found']) + ',' + \
+                str(primer_dict[a_gene_region]['blast_matches_found']) + '\n'
+        splitReport.write(out_line)
+
+        logging.info('Exact matches found: ' + str(primer_dict[a_gene_region]['exact_matches_found']))
+        logging.info('Regex matches found: ' + str(primer_dict[a_gene_region]['regex_matches_found']))
+        logging.info('K-mer matches found: ' + str(primer_dict[a_gene_region]['kmer_matches_found']))
+        logging.info('Blast matches found: ' + str(primer_dict[a_gene_region]['blast_matches_found']))
+
+        # Check to see if no matches were found
+        if primer_dict[a_gene_region]['exact_matches_found'] == 0:
+            logging.warning('No exact matches found')
+        if primer_dict[a_gene_region]['regex_matches_found'] == 0:
+            logging.warning('No regex matches found')
+        if primer_dict[a_gene_region]['kmer_matches_found'] == 0:
+            logging.warning('No k-mer matches found')
+
+
+    splitReport.close()
+
+def split_by_primers_matchpair(fastq_R1_file, fastq_R2_file, primer_dict, orientation, infast_R1_name, infast_R2_name, out_dir, patient_list, regex_error_rate, make_sure=False):
+    """
+    Take an input fastq file and split it into individual fastq files, with the split based on the presence of
+    a primer sequence specified in a dictionary. This version does matching on the R1 reads and finds the matching
+    R2 read based on position in the fastq file.
+    :param fastq_R1_file:
+    :param fastq_R2_file:
+    :param primer_dict:
+    :param orientation: Whether these are forward (R1) or reverse (R2) reads. Options are 'fwd' or 'rev'.
+    :param regex_error_rate: error rate for regex matching.
+    :param make_sure: When set to True, a blast search is included in the process.
+    :return:
+    """
+    line_number_quality = 1
+    line_number_plus = 2
+    line_number_sequence = 3
+    line_number_header = 4
+
+    # Get the shortest primer length
+    shortest_primer_length = 1000000
+    for aPrimer in list(primer_dict.keys()):
+        if len(primer_dict[aPrimer][orientation]) < shortest_primer_length:
+            shortest_primer_length = len(primer_dict[aPrimer][orientation])
+
+    if make_sure:
+        # todo this should be moved to a function of its own
+        # Make a fasta file with all primers
+        temp_fasta = open(out_dir + 'primerList.fasta', 'w')
+
+        for geneRegion in primer_dict:
+            header_line = '>' + geneRegion + '\n'
+            seq_line = primer_dict[geneRegion][orientation] + '\n'
+            temp_fasta.write(header_line)
+            temp_fasta.write(seq_line)
+        temp_fasta.close()
+
+        # Make a blast database
+        create_temp_blast_db(out_dir + 'primerList.fasta', out_dir + 'primers')
+
+    for seq_line, R2_seq_line in izip(open(fastq_R1_file, 'r'), open(fastq_R2_file, 'r')):
+        # Get the header
+        if is_divisable(line_number_header, 4):
+            current_header = seq_line
+            current_header_R2 = R2_seq_line
+
+        # Get the sequence and match to a primer
+        if is_divisable(line_number_sequence, 4):
+            detected_primer = 'None'
+            current_sequence = seq_line
+            current_sequence_R2 = R2_seq_line
+            for geneRegion in list(primer_dict.keys()):
+                # The geneRegion is the gene target of the primer
+                seq_primer_region = seq_line[primer_dict[geneRegion][orientation + '_preseq']:
+                                             len(primer_dict[geneRegion][orientation]) +
+                                             primer_dict[geneRegion][orientation + '_preseq']]
+
+                # Level 1: Check exact matches
+                if primer_dict[geneRegion][orientation] == seq_primer_region:
+                    detected_primer = geneRegion
+                    primer_dict[geneRegion]['exact_matches_found'] += 1
+
+                # Level 2: If no exact match, then look for regex matches
+                elif wildcard_seq_match(primer_dict[geneRegion][orientation + '_wild'], seq_primer_region, regex_error_rate):
+                    detected_primer = geneRegion
+                    primer_dict[geneRegion]['regex_matches_found'] += 1
+
+                # Level 3: If no wildmatch, look for kmer matches
+                else:
+                    for kmer in primer_dict[geneRegion][orientation + '_keys']:
+                        if kmer in seq_primer_region:
+                            detected_primer = geneRegion
+                            primer_dict[geneRegion]['kmer_matches_found'] += 1
+
+            # Finally, if there is still no match, use the blastDB
+            if detected_primer == 'None' and make_sure is True:
+
+                detected_primer = primer_blast_search('primers', current_sequence[:shortest_primer_length], out_dir)
+                if detected_primer != 'None':
+                    primer_dict[geneRegion]['blast_matches_found'] += 1
+
+        # Get the plus sign
+        if is_divisable(line_number_plus, 4):
+            current_plus = seq_line
+            current_plus_R2 = R2_seq_line
+
+        # Get the quality scores
+        if is_divisable(line_number_quality, 4):
+            current_quality = seq_line
+            current_quality_R2 = R2_seq_line
+
+        # At the end of the record, write to the appropriate output file for the R1 file
+        if is_divisable(line_number_quality, 4):
+            export_line_to_fastq(detected_primer, current_header, current_sequence, current_plus, current_quality,
+                                 infast_R1_name, out_dir, patient_list)
+
+            export_line_to_fastq(detected_primer, current_header_R2, current_sequence_R2, current_plus_R2, current_quality_R2,
+                                 infast_R2_name, out_dir, patient_list)
 
         line_number_quality += 1
         line_number_plus += 1
@@ -497,13 +625,20 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_e
 
     if demultiplex_fastq:
         print("Demultiplexing fastq")
-        infast_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
-        split_by_primers(data['input_data']['fwd_fastq_file'], test_primer_dict, 'fwd',
-                         infast_name, output_dir, patient_list, regex_error_rate)
+        if fwd_match_only:
+            infast_R1_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
+            infast_R2_name = ntpath.basename(data['input_data']['rev_fastq_file'])
+            split_by_primers_matchpair(data['input_data']['fwd_fastq_file'], data['input_data']['rev_fastq_file'],
+                                       'fwd', infast_R1_name, infast_R2_name, output_dir, patient_list,
+                                       regex_error_rate)
+        else:
+            infast_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
+            split_by_primers(data['input_data']['fwd_fastq_file'], test_primer_dict, 'fwd',
+                             infast_name, output_dir, patient_list, regex_error_rate)
 
-        infast_name = ntpath.basename(data['input_data']['rev_fastq_file'])
-        split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
-                         infast_name, output_dir, patient_list, regex_error_rate)
+            infast_name = ntpath.basename(data['input_data']['rev_fastq_file'])
+            split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
+                             infast_name, output_dir, patient_list, regex_error_rate)
 
     if run_main_pipe:
         print("Running main pipeline")
@@ -577,6 +712,8 @@ if __name__ == '__main__':
     parser.add_argument('-hap', '--no_haplotype', default=True, action='store_false',
                         help='Do not run the haplotyping pipeline')
     parser.add_argument('-e', '--regex_error', type=int, help='Set the regex error rate', default=2)
+    parser.add_argument('-f', '--fwd_match_only', default=False, action='store_true',
+                        help='Only match primers on R1 / fwd')
     args = parser.parse_args()
 
     config_file = args.config_file
@@ -584,5 +721,6 @@ if __name__ == '__main__':
     main_pipeline = args.no_main_pipeline
     haplotype = args.no_haplotype
     demultiplex = args.no_demultiplex
+    fwd_match_only = args.fwd_match_only
 
     main(config_file, output_dir, demultiplex, main_pipeline, haplotype, regex_error_rate)
