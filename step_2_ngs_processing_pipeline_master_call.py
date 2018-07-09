@@ -171,7 +171,6 @@ def call_fasta_cleanup(consensus_fasta, remove_bad_seqs, clean_path, length, log
     :param logfile: the path and name of the log file
     :return:
     """
-
     for fasta_file in consensus_fasta:
         cmd4 = 'python3 {0} -i {1} -o {2} -l {3} -lf {4}'.format(remove_bad_seqs,
                                                                         fasta_file,
