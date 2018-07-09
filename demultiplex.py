@@ -484,7 +484,7 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
                 else:
                     sub_region = sub_region
                 user_ref = False
-
+                cores = data['input_data']['cores']
                 # Calling step 2
                 try:
                     step_2_ngs_processing_pipeline_master_call.main(path,
@@ -498,9 +498,9 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
                                                                     data['pipelineSettings']['run_step'],
                                                                     False,
                                                                     user_ref,
-                                                                    )
+                                                                    cores)
                 except Exception as e:
-                    # Todo is this try except actually necessary
+                    # Todo: is this try except actually necessary
                     print(e)
                     pass
 
