@@ -459,6 +459,7 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
         split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
                          infast_name, output_dir, patient_list)
 
+
     if run_main_pipe:
         print("Running main pipeline")
 
