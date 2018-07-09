@@ -346,7 +346,6 @@ def main(path, name, gene_region, regions, fwd_primer, cDNA_primer, nonoverlap, 
             fasta = fastq.replace("fastq", "fasta")
             cmd2 = 'seqmagick convert {0} {1}'.format(fastq,
                                                       fasta)
-
             subprocess.call(cmd2, shell=True)
 
         # remove the copied fastq files
