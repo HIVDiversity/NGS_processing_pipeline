@@ -172,7 +172,7 @@ def call_fasta_cleanup(consensus_fasta, remove_bad_seqs, clean_path, length, log
     """
 
     for fasta_file in consensus_fasta:
-        cmd4 = 'python3 {0} -i {1} -o {2} -l {3} -lf {4}'.format(remove_bad_seqs,
+        cmd4 = 'python3 {0} -in {1} -o {2} -l {3} -lf {4}'.format(remove_bad_seqs,
                                                                         fasta_file,
                                                                         clean_path,
                                                                         length,
@@ -195,7 +195,7 @@ def call_contam_check(consensuses, contam_removal_script, contam_removed_path, g
     :return: None
     """
     for consensus_file in consensuses:
-        cmd3 = 'python3 {0} -i {1} -o {2} -g {3} -l {4}'.format(contam_removal_script,
+        cmd3 = 'python3 {0} -in {1} -o {2} -g {3} -l {4}'.format(contam_removal_script,
                                                                 consensus_file,
                                                                 contam_removed_path,
                                                                 gene_region,
@@ -227,7 +227,7 @@ def call_align(script_folder, to_align, aln_path, fname, ref, gene, sub_region, 
     else:
         usr_ref = "-u {}".format(user_ref)
 
-    cmd5 = 'python3 {0}  -i {1} -o {2} -n {3} -r {4} -g {5} -v {6} {7}'.format(align_function, to_align, aln_path, fname,
+    cmd5 = 'python3 {0}  -in {1} -o {2} -n {3} -r {4} -g {5} -v {6} {7}'.format(align_function, to_align, aln_path, fname,
                                                                             ref, gene, reg, usr_ref)
     subprocess.call(cmd5, shell=True)
 
@@ -264,6 +264,8 @@ def main(path, name, gene_region, sub_region, fwd_primer, cDNA_primer, nonoverla
                 print("Deleting exisiting folders")
                 rmtree(flder)
             os.makedirs(flder, exist_ok=True)
+            if folder == '1consensus_temp':
+                os.makedirs(os.path.join(flder, "binned"), exist_ok=True)
 
     new_data = os.path.join(path, "0new_data")
 
@@ -575,13 +577,6 @@ def main(path, name, gene_region, sub_region, fwd_primer, cDNA_primer, nonoverla
 
                 call_align(script_folder, to_align, aln_path, fname, ref, gene, sub_region, user_ref)
 
-                # translate alignment
-                fname = to_align.replace(".fasta", "_aligned.fasta")
-                transl_name = fname.replace("_aligned.fasta", "_aligned_translated.fasta")
-                cmd = "seqmagick convert --sort length-asc --upper --translate dna2protein --line-wrap 0 {0} {1}".format(
-                    fname, transl_name)
-                subprocess.call(cmd, shell=True)
-
             run_step += 1
 
             if run_only:
@@ -593,7 +588,7 @@ def main(path, name, gene_region, sub_region, fwd_primer, cDNA_primer, nonoverla
         call_stats_calc = os.path.join(script_folder, 'ngs_stats_calculator.py')
         stats_outfname = (name + "_" + gene_region + '_sequencing_stats.csv')
         stats_outpath = os.path.join(path, stats_outfname)
-        cmd6 = 'python3 {0} -i {1} -o {2}'.format(call_stats_calc, path, stats_outpath)
+        cmd6 = 'python3 {0} -in {1} -o {2}'.format(call_stats_calc, path, stats_outpath)
         subprocess.call(cmd6, shell=True)
 
     print("The sample processing has been completed")
@@ -615,7 +610,8 @@ if __name__ == "__main__":
                         help='the prefix name of your outfile. Usually the participant name', required=True)
     parser.add_argument('-g', '--gene_region', default="ENV", type=str,
                         choices=["ENV", "ENV_1", "ENV_2", "ENV_3", "ENV_4", "ENV_5", "GAG", "GAG_P17", "GAG_P24", "POL",
-                                 "POL_PRO", "POL_RT", "POL_INT", "POL_RNASEH", "PRO", "NEF_1", "VIF_1", "VPR", "REV", "VPU"],
+                                 "POL_PRO", "POL_RT", "POL_RT1", "POL_RT2", "POL_INT", "POL_INT_VIF", "POL_RNASEH",
+                                 "PRO", "NEF_1", "VIF_1", "VPR", "VPR_VIF", "REV", "VPU"],
                         help='the genomic region being sequenced, '
                              'valid options: etc..', required=True)
     parser.add_argument('-reg', '--regions', default=False, action="store",
@@ -646,12 +642,16 @@ if __name__ == "__main__":
                         help='run only the specified run_step)', required="--run_step" in sys.argv)
 
     args = parser.parse_args()
+    if args.run_step > 2 or args.run_only > 2:
+        fwd_primer = "N"
+        cDNA_primer = "N"
+    else:
+        fwd_primer = args.fwd_primer
+        cDNA_primer = args.cDNA_primer
     path = args.path
     name = args.name
     gene_region = args.gene_region
     regions = args.regions
-    fwd_primer = args.fwd_primer
-    cDNA_primer = args.cDNA_primer
     nonoverlap = args.nonoverlap
     cores = args.cores
     length = args.length

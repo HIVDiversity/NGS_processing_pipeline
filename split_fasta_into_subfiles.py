@@ -65,15 +65,13 @@ def main(infile, outpath, field):
     for out_file, seq_objs in d.items():
         for seq_obj in seq_objs:
             with open(out_file, 'a') as handle:
-                if os.path.isfile(out_file):
-                    os.unlink(out_file)
                 handle.write(">{0}\n{1}\n".format(seq_obj[0], seq_obj[1]))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Plots loop stats from csv file (produced by loop_stats.py)',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-i', '--infile', type=str, required=True,
+    parser.add_argument('-in', '--infile', type=str, required=True,
                         help='The input fasta file')
     parser.add_argument('-o', '--outpath', default=argparse.SUPPRESS, type=str,
                         help='The path to where the output file will be created', required=True)

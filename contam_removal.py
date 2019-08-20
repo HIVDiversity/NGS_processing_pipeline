@@ -55,6 +55,11 @@ def blastn_seqs(infile, gene_region, outpath):
     :return: (bool) True or False depending on whether sequence is not hiv
     """
 
+    get_script_path = os.path.realpath(__file__)
+    script_folder = os.path.split(get_script_path)[0]
+    script_folder = os.path.abspath(script_folder)
+    blastdb_path = os.path.join(script_folder, "local_blast_db", "lanl_hiv_db")
+
     # assign temp file
     tmp_out_file = os.path.join(outpath, "tmp_blast.xml")
     target_gene = [gene_region.upper().split("_")[0]]
@@ -68,8 +73,8 @@ def blastn_seqs(infile, gene_region, outpath):
             if check_for_overlap.upper().split("_")[1] == "5":
                 target_gene = ["INT", "VIF"]
         except IndexError as e:
-            print(e, "\nno overlapping gene regions detected")
-            pass
+            print(e, "\nMultiple POL genes not specified, using POL")
+            target_gene = ["POL"]
 
     # blast settings
     # format_fasta = ">{0}\n{1}".format(s_name, q_sequence)
@@ -84,6 +89,9 @@ def blastn_seqs(infile, gene_region, outpath):
     # # write online blast results to file
     # with open(tmp_out_file, 'w') as handle:
     #     handle.write(blast_results.read())
+
+    #change path to allow blastdb to be detected
+    os.chdir(blastdb_path)
 
     # run local blast
     blastn_cline = NcbiblastnCommandline(query=infile, db=blastdb, evalue=e_value, outfmt=outformat, perc_identity=80,
@@ -110,19 +118,18 @@ def blastn_seqs(infile, gene_region, outpath):
         if blast_record.alignments:
             found = False
             first_region = ''
-            for i, alignment in enumerate(blast_record.alignments):
+            for i, alignment in enumerate(blast_record.alignments[:10]):
                 title_name = alignment.title.split(" ")[0]
                 region = title_name.upper().split("_")[-1]
                 if i == 0:
                     first_region = title_name.upper().split("_")[-1]
 
                 if region in target_gene:
+                    good_records[query_seq_name] = "_hiv_" + region.upper()
                     found = True
-                    good_records[query_seq_name] = "_hiv_" + region.lower()
                     break
-            # todo: should this be indented?
             if not found:
-                bad_records[query_seq_name] = "_hiv_" + first_region.lower()
+                bad_records[query_seq_name] = "_hiv_" + first_region.upper()
 
         else:
             # no hit in db
@@ -133,29 +140,36 @@ def blastn_seqs(infile, gene_region, outpath):
     return bad_records, good_records
 
 
-def main(consensus, outpath, gene_region, logfile):
-    print(consensus)
+def main(infile, outpath, gene_region, logfile):
+    print(infile)
     # initialize file names
-    cln_cons_name = os.path.split(consensus)[-1]
-    cln_cons = cln_cons_name.replace("_clean.fasta", "_good.fasta")
-    consensus_out = os.path.join(outpath, cln_cons)
-    contam_seqs = cln_cons_name.replace("_clean.fasta", "_contam_seqs.fasta")
-    contam_out = os.path.join(outpath, contam_seqs)
+    infile = os.path.abspath(infile)
+    outpath = os.path.abspath(outpath)
+    cln_name = os.path.split(infile)[-1]
+    original_path = os.getcwd()
+    cln_out_name = cln_name.replace("_clean.fasta", "_good.fasta")
+    outfile = os.path.join(outpath, cln_out_name)
+    contam_name = cln_name.replace("_clean.fasta", "_contam_seqs.fasta")
+    contam_outfile = os.path.join(outpath, contam_name)
 
     with open(logfile, 'a') as handle:
         handle.write("Contam removal step:\nSequences identified as contaminants (if any):")
 
     # clear out any existing outfiles for consensus
-    with open(consensus_out, 'w') as handle1:
+    with open(outfile, 'w') as handle1:
         handle1.write("")
-    with open(contam_out, 'w') as handle2:
+    with open(contam_outfile, 'w') as handle2:
         handle2.write("")
 
     # store all consensus seqs in a dict
-    all_sequences_d = fasta_to_dct(consensus)
+    all_sequences_d = fasta_to_dct(infile)
 
     # checck for contam
-    contam, not_contam = blastn_seqs(consensus, gene_region, outpath)
+
+    contam, not_contam = blastn_seqs(infile, gene_region, outpath)
+
+    # path changed back to original cwd (was changed in blastn_seqs for database location
+    os.chdir(original_path)
     # set all output names to uppercase to ensure input > output names match
     contam_names = [x.upper() for x in contam.keys()]
     not_contam_names = [x.upper() for x in not_contam.keys()]
@@ -168,13 +182,13 @@ def main(consensus, outpath, gene_region, logfile):
         if name in contam_names:
             print("Non HIV sequence found:\n\t", name)
             new_name = name + contam[name]
-            with open(contam_out, 'a') as handle1:
+            with open(contam_outfile, 'a') as handle1:
                 outstr = ">{0}\n{1}\n".format(new_name, seq)
                 handle1.write(outstr)
 
         # if is not contam, to write to good outfile
         elif name in not_contam_names:
-            with open(consensus_out, 'a') as handle2:
+            with open(outfile, 'a') as handle2:
                 outstr = ">{0}\n{1}\n".format(name, seq)
                 handle2.write(outstr)
 
@@ -189,7 +203,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('-i', '--consensus', default=argparse.SUPPRESS, type=str,
+    parser.add_argument('-in', '--infile', default=argparse.SUPPRESS, type=str,
                         help='The read1 (R1) fastq file', required=True)
     parser.add_argument('-o', '--outpath', default=argparse.SUPPRESS, type=str,
                         help='The path to where the output file will be copied', required=True)
@@ -200,9 +214,9 @@ if __name__ == "__main__":
                         help='the genomic region being sequenced', required=True)
 
     args = parser.parse_args()
-    consensus = args.consensus
+    infile = args.infile
     outpath = args.outpath
     gene_region = args.gene_region
     logfile = args.logfile
 
-    main(consensus, outpath, gene_region, logfile)
+    main(infile, outpath, gene_region, logfile)

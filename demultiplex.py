@@ -1,6 +1,4 @@
 # !/usr/bin/python3
-from __future__ import print_function
-from __future__ import division
 import csv
 from subprocess import call
 from subprocess import Popen
@@ -10,17 +8,19 @@ import os
 import ntpath
 import json
 import logging
+import time
+from glob import glob
 
 # Non-standard
 import regex
 
 
-__author__ = "Colin, Jon, Dave"
+__author__ = "Colin Anthony, Jon Ambler, David Matten"
 __copyright__ = "Something"
-__credits__ = ["Colin", "Jon", "Dave"]
+__credits__ = ["Colin Anthony", "Jon Ambler", "David Matten"]
 __license__ = "TBD"
-__version__ = "0.1"
-__maintainer__ = "Colin?"
+__version__ = "0.2"
+__maintainer__ = "Colin Anthony"
 __email__ = ""
 __status__ = "Testing"
 
@@ -170,7 +170,7 @@ def make_primer_dict(primer_file):
 def export_line_to_fastq(fileTag, headerLine, seqLine, plusLine, scoreLine, infast_name, out_dir, patient_list):
     """
     For the export of a fastq sequence, line by line.
-    :param fileTag:
+    :param fileTag: the gene region???
     :param headerLine:
     :param seqLine:
     :param plusLine:
@@ -178,9 +178,9 @@ def export_line_to_fastq(fileTag, headerLine, seqLine, plusLine, scoreLine, infa
     :return:
     """
     out_file_name = infast_name.replace('multiplex', fileTag)
-    out_file_path = out_dir + patient_list[0] + '/' + fileTag + '/0new_data/'
-
-    with open(out_file_path + out_file_name, "a+") as handle:
+    out_file_path = out_dir + patient_list + '/' + fileTag + '/0new_data/'
+    outfile = os.path.join(out_file_path, out_file_name)
+    with open(outfile, "a+") as handle:
         handle.write(headerLine)
         handle.write(seqLine)
         handle.write(plusLine)
@@ -562,18 +562,191 @@ def primer_blast_search(db_identifier, sequence, out_dir):
         return "None"
 
 
-def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
+def process_input_dir(fastq_directory_path):
+    """
+    This function finds all the fastq files in a given directory, and groups the based on the patient, sample,
+    and the read pair. So R1 and R2 are grouped together, and samples belonging to the same patient are grouped.
+    :param fastq_directory_path: A string that is the path to the directory containing the fastq files.
+    :return: a dict
+    """
+    search_path = os.path.join(fastq_directory_path, "*.fastq")
+    file_list = glob(search_path)
+
+    infile_dict = {}
+
+    for a_file in file_list:
+        a_file = os.path.abspath(a_file)
+        file_parts = a_file.split("_")
+        if "None" in file_parts:
+            continue
+        if "R1" in a_file:
+            path = os.path.split(a_file)[0]
+            inf_R1_name = os.path.split(a_file)[-1]
+            outf_R1 = inf_R1_name.replace("-", "_")
+            outf_R1_rename = regex.sub("S[0-9]+_L[0-9][0-9][0-9]_R1_[0-9][0-9][0-9].fastq", "R1.fastq", outf_R1)
+            outf_R1_rename_with_path = os.path.join(path, outf_R1_rename)
+
+            if outf_R1_rename == outf_R1:
+                # check if they have already been renamed
+                if outf_R1.split("_")[-1] == "R1.fastq":
+                    print("file was already in correct format?")
+                else:
+                    print()
+                    raise ValueError("Unable to rename R1 file {0}\ncheck the file renaming regex".format(a_file))
+            else:
+                os.rename(a_file, outf_R1_rename_with_path)
+
+            print(outf_R1_rename)
+
+            orientation = "R1"
+            patient = outf_R1_rename.split('_')[0]
+            identifier = outf_R1_rename.replace("_R1.fastq", "")
+
+        elif "R2" in a_file:
+            path = os.path.split(a_file)[0]
+            inf_R2_name = os.path.split(a_file)[-1]
+            outf_R2 = inf_R2_name.replace("-", "_")
+            outf_R2_rename = regex.sub("S[0-9]+_L[0-9][0-9][0-9]_R2_[0-9][0-9][0-9].fastq", "R2.fastq", outf_R2)
+            outf_R2_rename_with_path = os.path.join(path, outf_R2_rename)
+            if outf_R2_rename == outf_R2:
+                if outf_R2.split("_")[-1] == "R2.fastq":
+                    print("file was already in correct format?")
+                else:
+                    raise ValueError("Unable to rename R1 file {0}\ncheck the file renaming regex".format(a_file))
+            else:
+                os.rename(a_file, outf_R2_rename_with_path)
+
+            orientation = "R2"
+            patient = outf_R2_rename.split('_')[0]
+            identifier = outf_R2_rename.replace("_R2.fastq", "")
+
+        else:
+            continue
+        # if a_file[-5:] == 'fastq' or a_file[-2:] == 'fq':
+        #
+        #     # Identify patient tag
+        #     patient = a_file.split('_')[0]
+        #
+        #     # Identify if R1 or R2
+        #     orientation = a_file.split('_')[-3]
+        #
+        #     # Get filename without R1/2
+        #     identifier = a_file.split('_')[:-4] + a_file.split('_')[-2:]
+        #     identifier = ''.join(identifier)
+
+        if patient not in infile_dict.keys():
+            infile_dict[patient] = {identifier: {orientation: a_file}}
+
+        elif identifier not in infile_dict[patient].keys():
+            infile_dict[patient][identifier] = {orientation: a_file}
+
+        elif orientation not in infile_dict[patient][identifier].keys():
+            infile_dict[patient][identifier][orientation] = a_file
+
+    logging.info(infile_dict)
+
+    return infile_dict
+
+
+def check_for_previous_runs(output_directory_to_check, parsed_input_file_dict):
+
+    file_list = os.listdir(output_directory_to_check)
+
+    # if output_directory_to_check[-1] != '/':
+    #     output_directory_to_check = output_directory_to_check + '/'
+    print(output_directory_to_check)
+    output_directory_to_check = os.path.abspath(output_directory_to_check)
+    print(output_directory_to_check)
+    setup_log = os.path.join(output_directory_to_check, 'setup_log.csv')
+    previous_run_dict = {}
+
+    if not os.path.isfile(setup_log):
+
+        logging.info('No previous runs detected.')
+
+        print('Running first time setup')
+
+        with open(setup_log, 'w') as handle:
+            handle.write('Patient,Sample,R1,R2,status\n')
+
+            for patient in parsed_input_file_dict.keys():
+
+                for sample in parsed_input_file_dict[patient].keys():
+
+                    line_string = patient + ',' + sample + ',' + parsed_input_file_dict[patient][sample]['R1'] + ',' + \
+                    parsed_input_file_dict[patient][sample]['R2'] + ',Unprocessed' + '\n'
+
+                    handle.write(line_string)
+
+    else:
+
+        print('Reading existing setup file')
+
+        with open(setup_log, 'r') as handle:
+            # setup_log = open(setup_log, 'r')
+
+            completed_sample_run_list = []
+            unprocessed_sample_run_list = []
+
+            # for line in setup_log:
+            for line in handle:
+                line = line.strip('\n')
+                line = line.split(',')
+
+                patient = line[0]
+                sample_identifier = line[1]
+                R1_read = line[2]
+                R2_read = line[3]
+                status = line[4]
+
+                if status == 'Complete':
+                    completed_sample_run_list.append(sample_identifier)
+                if status == 'Unprocessed':
+                    unprocessed_sample_run_list.append(sample_identifier)
+
+                if patient != 'Patient':
+
+                    if patient not in previous_run_dict.keys():
+                        previous_run_dict[patient] = {sample_identifier: {'R1': R1_read, 'R2': R2_read, 'status': status}}
+
+                    elif line[1] not in previous_run_dict[line[0]].keys():
+                        previous_run_dict[line[0]][line[1]] = {'R1': line[2], 'R2': line[3], 'status': status}
+
+            logging.info('Unprocessed samples: ' + str(len(unprocessed_sample_run_list)))
+            logging.info('Processed samples: ' + str(len(completed_sample_run_list)))
+            # setup_log.close()
+
+    return previous_run_dict, setup_log
+
+
+def update_setuplog(status_to_update, log_file):
+    # add path
+    print(log_file)
+    old_log = log_file.replace('setup_log.csv', 'setup_log_old.csv')
+    os.rename(log_file, old_log)
+
+    log_file_new = open(log_file, 'wt')
+    log_file_old = open(old_log, 'rt')
+
+    with log_file_old as lineIn:
+        with log_file_new as lineOut:
+            for line in lineIn:
+                lineOut.write(line.replace('Unprocessed', status_to_update))
+
+    os.unlink(old_log)
+    log_file_new.close()
+
+    return True
+
+
+def main(config_file, main_pipeline, haplotype):
     """
     The main function for the pipeline
     :param config_file:
-    :param output_dir:
-    :param demultiplex:
     :param main_pipeline:
     :param haplotype:
     :return:
     """
-
-    logging.basicConfig(filename='Pipeline.log', level=logging.DEBUG)
 
     print("Parsing the config file:")
 
@@ -586,22 +759,48 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
     if data["demiltiplexSettings"]["do_blast"] == "yes":
         should_do_blast = True
 
+    # ----------------------- Parsing input files -----------------------
+    infile_directory = data['input_data']['fastq_dir']
+    if infile_directory[-1] != '/':
+        infile_directory = infile_directory + '/'
+
+    input_file_dict = process_input_dir(data['input_data']['fastq_dir'])
+
+    prev_run_dict, log_file = check_for_previous_runs(data['input_data']['out_folder'], input_file_dict)
+
+    patient_list = list(input_file_dict.keys())
+
+    prev_run_patient_list = list(prev_run_dict.keys())
+
+    # Catch to see if samples are added and being re-run
+    if len(patient_list) != len(prev_run_patient_list) and len(prev_run_patient_list) > 0:
+        print('The patient list from the last run and this one do not match.')
+        quit()
+
+    # ----------------------- Logging the run parameters -----------------------
     logging.debug(data)
-    logging.info(data['input_data']['fwd_fastq_file'])
-    logging.info(data['input_data']['rev_fastq_file'])
+    logging.info(input_file_dict)
     logging.info(data['input_data']['primer_csv'])
     logging.info(data['input_data']['out_folder'])
-    logging.info(data['input_data']['patient_list'])
+    logging.info(patient_list)
 
     # Make sure we are working in the right dir
     out_dir = data['input_data']['out_folder']
+
     if out_dir[-1] != '/':
         out_dir = out_dir + '/'
 
-    patient_list = data['input_data']['patient_list']
+    # ----------------------- Logging info -----------------------
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+    pipeline_logging_name = "Pipeline_{}.log".format(timestr)
+    pipeline_logging_file = os.path.join(out_dir, pipeline_logging_name)
+    logging.basicConfig(filename=pipeline_logging_file, level=logging.DEBUG)
+
+    '''
     if len(patient_list) > 1:
         logging.warning('The patient list provided is either too long or not a list.')
         quit()
+    '''
 
     # The actual running part.
     test_primer_dict = make_primer_dict(data['input_data']['primer_csv'])
@@ -611,12 +810,38 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
 
     logging.info("Primer data parsed. " + str(len(test_primer_dict.keys())) + " primer entries found.")
 
-    os.chdir(output_dir)
+    # This is where we choose what to do if a run was already done.
 
-    create_file_structure = True
-    demultiplex_fastq = demultiplex
+    incomplete_run_detected = False
+    demultiplex_fastq = False
+
+    if len(prev_run_patient_list) == 0:
+        # Then no previous run was detected, and everything must be done.
+        create_file_structure = True
+        demultiplex_fastq = True
+
+    else:
+        # The pipeline has been run, and so the file structure is in place.
+        create_file_structure = False
+
+        for a_patient in prev_run_dict.keys():
+            for sample in prev_run_dict[a_patient].keys():
+                print(prev_run_dict[a_patient][sample])
+                if prev_run_dict[a_patient][sample]['status'] == 'Unprocessed':
+                    incomplete_run_detected = True
+
+    # Deciding to run demultiplexing again if incomplete run detected.
+    #demultiplex_fastq = demultiplex
+
+    if incomplete_run_detected:
+        print('An incomplete run has been detected, please remove all files in the output directory and re-run the pipeline.')
+        quit()
+
     run_main_pipe = main_pipeline
     make_haplotypes = haplotype
+
+    print('Create file structure needed: ' + str(create_file_structure))
+    print('Incomplete run detected: ' + str(incomplete_run_detected))
 
     if create_file_structure:
         print("Creating file structure")
@@ -632,22 +857,32 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
 
     if demultiplex_fastq:
         print("Demultiplexing fastq")
-        if fwd_match_only == "yes":
-            infast_R1_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
-            infast_R2_name = ntpath.basename(data['input_data']['rev_fastq_file'])
 
-            split_by_primers_matchpair(data['input_data']['fwd_fastq_file'], data['input_data']['rev_fastq_file'],
-                                       test_primer_dict, 'fwd', infast_R1_name, infast_R2_name, output_dir,
-                                       patient_list,
-                                       regex_error_rate, make_sure=should_do_blast)
-        else:
-            infast_name = ntpath.basename(data['input_data']['fwd_fastq_file'])
-            split_by_primers(data['input_data']['fwd_fastq_file'], test_primer_dict, 'fwd',
-                             infast_name, output_dir, patient_list, regex_error_rate, make_sure=should_do_blast)
+        for a_patient in input_file_dict.keys():
 
-            infast_name = ntpath.basename(data['input_data']['rev_fastq_file'])
-            split_by_primers(data['input_data']['rev_fastq_file'], test_primer_dict, 'rev',
-                             infast_name, output_dir, patient_list, regex_error_rate, make_sure=should_do_blast)
+            for a_sample in input_file_dict[a_patient].keys():
+                r1_file_path = input_file_dict[a_patient][a_sample]['R1']
+                r2_file_path = input_file_dict[a_patient][a_sample]['R2']
+
+                if fwd_match_only == "yes":
+                    infast_R1_name = ntpath.basename(r1_file_path)
+                    infast_R2_name = ntpath.basename(r2_file_path)
+
+                    split_by_primers_matchpair(r1_file_path, r2_file_path,
+                                                test_primer_dict, 'fwd', infast_R1_name, infast_R2_name, out_dir,
+                                                a_patient,
+                                                regex_error_rate, make_sure=should_do_blast)
+                else:
+                    infast_name = ntpath.basename(r1_file_path)
+                    split_by_primers(r1_file_path, test_primer_dict, 'fwd',
+                                    infast_name, out_dir, a_patient, regex_error_rate, make_sure=should_do_blast)
+
+                    infast_name = ntpath.basename(r2_file_path)
+                    split_by_primers(r2_file_path, test_primer_dict, 'rev',
+                                    infast_name, out_dir, a_patient, regex_error_rate, make_sure=should_do_blast)
+
+        update_complete = update_setuplog('Complete', log_file)
+        print('De-multiplex complete: ' + str(update_complete))
 
     if run_main_pipe:
         print("Running main pipeline")
@@ -665,34 +900,36 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
                 else:
                     nonoverlap = False
 
-                # Adding the required parameters
-                path = output_dir + patient_list[0] + '/' + gene_region
-                sub_region = gene_dict['sub_region']
-                if not sub_region:
-                    sub_region = False
-                else:
-                    sub_region = sub_region
-                user_ref = False
-                # main(path, name, gene_region, sub_region, fwd_primer, cDNA_primer, nonoverlap, length, run_step,
-                #      run_only, cores)
-                # Calling step 2
-                try:
-                    step_2_ngs_processing_pipeline_master_call.main(path,
-                                                                    data['pipelineSettings']['out_prefix'],
-                                                                    gene_region,
-                                                                    sub_region,
-                                                                    test_primer_dict[gene_region]['fwd_full'],
-                                                                    test_primer_dict[gene_region]['rev_full'],
-                                                                    nonoverlap,
-                                                                    data['pipelineSettings']['min_read_length'],
-                                                                    data['pipelineSettings']['run_step'],
-                                                                    False,
-                                                                    user_ref,
-                                                                    data['pipelineSettings']['cores'])
-                except Exception as e:
-                    # Todo is this try except actually necessary
-                    print(e)
-                    pass
+                for a_patient_entry in patient_list:
+
+                    # Adding the required parameters
+                    path = out_dir + a_patient_entry + '/' + gene_region
+                    sub_region = gene_dict['sub_region']
+                    if not sub_region:
+                        sub_region = False
+                    else:
+                        sub_region = sub_region
+                    user_ref = False
+                    # main(path, name, gene_region, sub_region, fwd_primer, cDNA_primer, nonoverlap, length, run_step,
+                    #      run_only, cores)
+                    # Calling step 2
+                    try:
+                        step_2_ngs_processing_pipeline_master_call.main(path,
+                                                                        data['pipelineSettings']['out_prefix'],
+                                                                        gene_region,
+                                                                        sub_region,
+                                                                        test_primer_dict[gene_region]['fwd_full'],
+                                                                        test_primer_dict[gene_region]['rev_full'],
+                                                                        nonoverlap,
+                                                                        data['pipelineSettings']['min_read_length'],
+                                                                        data['pipelineSettings']['run_step'],
+                                                                        False,
+                                                                        user_ref,
+                                                                        data['pipelineSettings']['cores'])
+                    except Exception as e:
+                        # Todo is this try except actually necessary
+                        print(e)
+                        pass
 
         if make_haplotypes:
             print("Making haplotypes from alignment")
@@ -702,7 +939,6 @@ def main(config_file, output_dir, demultiplex, main_pipeline, haplotype):
             step_3_make_haplotpes_from_alignment.main(
                 data['haplotype_settings']['infile'],
                 data['haplotype_settings']['field'],
-                data['haplotype_settings']['script_folder']
             )
 
 
@@ -715,9 +951,6 @@ if __name__ == '__main__':
 
     parser.add_argument('-c', '--config_file', type=str, help='Configuration file for the run in JSON format',
                         required=True)
-    parser.add_argument('-o', '--output_dir', type=str, help='Location to write the output fastq files', required=True)
-    parser.add_argument('-d', '--no_demultiplex', default=True, action='store_false',
-                        help='Do not run the demultiplexing step', required=False)
     parser.add_argument('-m', '--no_main_pipeline', default=True, action='store_false',
                         help='Do not run the main pipeline', required=False)
     parser.add_argument('-hap', '--no_haplotype', default=True, action='store_false',
@@ -725,9 +958,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     config_file = args.config_file
-    output_dir = args.output_dir
     main_pipeline = args.no_main_pipeline
     haplotype = args.no_haplotype
-    demultiplex = args.no_demultiplex
 
-    main(config_file, output_dir, demultiplex, main_pipeline, haplotype)
+    main(config_file, main_pipeline, haplotype)
